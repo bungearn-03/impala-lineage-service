@@ -1,0 +1,29 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+alembic==1.13.2
+cryptography==43.0.1
+python-dotenv==1.0.1
+
+impyla==0.19.0
+thrift==0.16.0
+thrift-sasl==0.4.3
+# pure-sasl is a pure-Python SASL client (no C extension) and is enough for
+# PLAIN/LDAP auth mechanisms, which is what this project's connections use.
+# The C-extension "sasl" package (Cyrus SASL bindings, needed only for
+# GSSAPI/Kerberos) is intentionally NOT installed: it references CPython's
+# longintrepr.h, which became a private/internal header in Python 3.11+, so
+# it fails to compile on this image's Python version. If Kerberos auth is
+# ever required, that needs a newer maintained fork or a patched build.
+pure-sasl==0.6.2
+
+sqlglot==25.24.5
+networkx==3.3
+
+anthropic==0.36.2
+
+pytest==8.3.3
+httpx==0.27.2

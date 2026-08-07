@@ -1,0 +1,3 @@
+CREATE VIEW db.v1 AS
+SELECT a, b
+FROM db.t1

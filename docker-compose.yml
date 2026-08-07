@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lineage
+      POSTGRES_PASSWORD: lineage
+      POSTGRES_DB: lineage
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lineage -d lineage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    # Copy backend/.env.example to backend/.env before running compose -
+    # see README.md.
+    env_file:
+      - ./backend/.env
+    environment:
+      # Always point the backend at the compose-network postgres hostname,
+      # regardless of whatever DATABASE_URL happens to be set to in .env.
+      # This override is what makes `docker compose up` work out of the box
+      # against the postgres service above.
+      DATABASE_URL: postgresql+psycopg2://lineage:lineage@postgres:5432/lineage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "9000:8000"
+    # Migrations are intentionally NOT run automatically from an entrypoint
+    # here - see "Database migrations" in README.md. Mounting the migration
+    # scripts in is still useful if you want to `docker compose exec backend`
+    # in and run alembic against the exact same networking/DNS the app uses.
+    volumes:
+      - ./database/migrations:/migrations:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      # NOTE: VITE_API_BASE_URL is baked into the static Vite build at image
+      # build time (see frontend/Dockerfile ARG/ENV), it is NOT runtime
+      # configurable here. Kept in sync with the backend's host port above
+      # (9000) - if you change that port mapping, update this build arg too
+      # and rebuild (docker compose up --build).
+      args:
+        VITE_API_BASE_URL: http://localhost:9000/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
