@@ -181,13 +181,20 @@ pyenv-win ให้สร้าง venv โดยระบุเวอร์ช�
 `& "$env:USERPROFILE\.pyenv\pyenv-win\versions\<3.10.x ขึ้นไป>\python.exe" -m venv .venv`
 
 รันจากไดเรกทอรี `backend/` โดยมี virtualenv ที่ install
-`backend/requirements.txt` แล้ว:
+`backend/requirements.txt` แล้ว จากนั้น `cd` เข้าไปใน
+`database/migrations/` ก่อนเรียก `alembic` (เหตุผลเดียวกับที่อธิบายไว้ใน
+กล่องหมายเหตุด้านล่าง: `script_location = .` ตีความเทียบกับ CWD ที่รันคำสั่ง
+ไม่ใช่ตำแหน่งไฟล์ `alembic.ini` เอง ถ้าเรียกจาก `backend/` ตรงๆด้วย path
+`-c ../database/migrations/alembic.ini` จะ error
+`Can't find Python file .\env.py` เหมือนกัน):
 
 ```bash
 # รันจาก backend/
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-alembic -c ../database/migrations/alembic.ini upgrade head
+cd ../database/migrations
+alembic -c alembic.ini upgrade head
+cd ../../backend
 ```
 
 ```powershell
@@ -195,7 +202,9 @@ alembic -c ../database/migrations/alembic.ini upgrade head
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-alembic -c ..\database\migrations\alembic.ini upgrade head
+cd ..\database\migrations
+alembic -c alembic.ini upgrade head
+cd ..\..\backend
 ```
 
 `env.py` อ่านค่า `DATABASE_URL` ผ่าน `app.core.config.get_settings()`
