@@ -1,112 +1,155 @@
 # Impala Lineage Service
 
-A service for scanning Impala / Hive Metastore metadata and reconstructing
-SQL lineage (table-level and column-level) from view/query definitions, with
-a web UI for browsing scanned databases and visualizing lineage as a graph.
+บริการสำหรับสแกน metadata ของ Impala / Hive Metastore และประกอบสร้าง SQL
+lineage (ทั้งระดับตารางและระดับคอลัมน์) จากนิยามของ view/query พร้อมเว็บ UI
+สำหรับเรียกดูฐานข้อมูลที่สแกนแล้วและแสดง lineage เป็นกราฟ
 
-It connects to Impala and/or the Hive Metastore, discovers databases, tables
-and views, parses the SQL behind views to derive lineage edges (falling back
-to an AI-assisted pass when static parsing can't confidently resolve a
-column), and stores the result in Postgres for the frontend to query and
-render as an interactive diagram.
+ตัวบริการเชื่อมต่อกับ Impala และ/หรือ Hive Metastore เพื่อค้นหาฐานข้อมูล
+ตาราง และ view จากนั้นแปลง (parse) SQL ที่อยู่หลัง view เพื่อหา lineage edge
+(โดยจะ fallback ไปใช้ AI ช่วยวิเคราะห์เมื่อการ parse แบบ static ไม่สามารถ
+สรุปผลระดับคอลัมน์ได้อย่างมั่นใจ) แล้วเก็บผลลงใน Postgres เพื่อให้ frontend
+ดึงไปแสดงเป็นไดอะแกรมแบบโต้ตอบได้
 
-## Architecture
+## เริ่มต้นใช้งานแบบเร็ว (Quick start)
 
-The FastAPI backend (`backend/app/`) is organized into layers, each with a
-narrow, single-purpose responsibility:
+วิธีที่เร็วที่สุดจาก `git clone` มาจนแอปทำงานได้ — ทุกขั้นตอนด้านล่างรันผ่าน
+Docker ทั้งหมด ไม่ต้องลง Python/Node บนเครื่องเอง ดูหัวข้อ "การติดตั้งบนเครื่อง
+(Local setup)" ด้านล่างสำหรับขั้นตอนแบบละเอียด (รวมถึงแนวทางที่ไม่ผ่าน Docker
+สำหรับรัน Alembic/scripts ตรงบนเครื่อง) และหัวข้อ "ตัวแปรสภาพแวดล้อมที่สำคัญ"
+สำหรับค่าอื่นๆที่ควรตั้งเพิ่ม
 
-- **`connectors/`** - `BaseConnector` defines the interface (`list_databases`,
+```bash
+# จากที่ไหนก็ได้ที่เก็บโปรเจกต์
+git clone <repo-url> && cd impala-lineage-service
+cp backend/.env.example backend/.env
+```
+
+```powershell
+git clone <repo-url>; cd impala-lineage-service
+Copy-Item backend\.env.example backend\.env
+```
+
+เปิดไฟล์ `backend/.env` แล้วตั้งค่าอย่างน้อย `SECRET_KEY` ให้เป็นค่าจริง
+
+```bash
+docker compose up --build -d
+docker compose exec -w /migrations backend alembic -c alembic.ini upgrade head
+```
+
+```powershell
+docker compose up --build -d
+docker compose exec -w /migrations backend alembic -c alembic.ini upgrade head
+```
+
+- Frontend: http://localhost:5173
+- Backend: http://localhost:9000
+
+`-d` คือรันทุก service แบบ background เพื่อให้ terminal ว่างสำหรับรันคำสั่ง
+migration ด้านบนต่อได้ทันที ดู log ทีหลังด้วย `docker compose logs -f`
+ขั้นตอน migration นี้**จำเป็นต้องรัน** และ**ไม่ได้ถูกรันอัตโนมัติ**ตอน
+container เริ่มทำงาน (ดูเหตุผลในหัวข้อ "การติดตั้งบนเครื่อง") — ถ้าลืมขั้นตอนนี้
+จะเจอ error `relation "connections" does not exist` (หรือชื่อ table อื่นๆ
+ในทำนองเดียวกัน) ตอนที่ frontend เรียก API ครั้งแรก
+
+## สถาปัตยกรรม (Architecture)
+
+FastAPI backend (`backend/app/`) จัดโครงสร้างเป็นเลเยอร์ แต่ละเลเยอร์มี
+หน้าที่รับผิดชอบเฉพาะทางของตัวเอง:
+
+- **`connectors/`** - `BaseConnector` นิยาม interface (`list_databases`,
   `list_objects`, `get_columns`, `get_ddl`, `get_view_definition`, ...)
-  implemented by `ImpalaConnector` and `HiveMetastoreConnector`, so the rest
-  of the app can talk to either backend interchangeably without caring which
-  one is configured on a given `Connection`.
-- **`metadata/`** - loaders that drive a connector to discover objects,
-  columns, and view definitions and persist them as `DataObject`/`Column`
-  rows (`object_scanner.py`, `schema_loader.py`, `view_definition_loader.py`).
-- **`parsers/`** - static SQL analysis built on `sqlglot`: normalizes
-  dialect quirks (`sql_normalizer.py`), resolves table-level
-  (`table_lineage.py`) and column-level (`column_lineage.py`) lineage,
-  extracts join graphs (`join_extractor.py`), and recursively expands
-  lineage through nested views (`recursive_resolver.py`).
-- **`ai/`** - a thin, isolated wrapper around the Anthropic SDK
+  ที่ถูก implement โดย `ImpalaConnector` และ `HiveMetastoreConnector` ทำให้
+  ส่วนอื่นของแอปเรียกใช้ backend ตัวไหนก็ได้สลับกันได้โดยไม่ต้องสนใจว่า
+  `Connection` นั้นตั้งค่าให้ใช้ตัวไหนอยู่
+- **`metadata/`** - ตัว loader ที่สั่งให้ connector ค้นหา object, column, และ
+  นิยามของ view แล้วบันทึกเป็นแถวข้อมูล `DataObject`/`Column`
+  (`object_scanner.py`, `schema_loader.py`, `view_definition_loader.py`)
+- **`parsers/`** - วิเคราะห์ SQL แบบ static บนพื้นฐานของ `sqlglot`: ปรับ
+  ความต่างของ dialect ให้เป็นมาตรฐาน (`sql_normalizer.py`), หาความสัมพันธ์
+  lineage ระดับตาราง (`table_lineage.py`) และระดับคอลัมน์
+  (`column_lineage.py`), สกัดกราฟของ join (`join_extractor.py`), และขยาย
+  lineage แบบวนซ้ำผ่าน nested view (`recursive_resolver.py`)
+- **`ai/`** - wrapper แบบเบาๆที่แยกส่วนไว้เฉพาะสำหรับเรียก Anthropic SDK
   (`ai_client.py`, `prompts.py`, `response_schema.py`, `result_validator.py`)
-  used only as a fallback when the sqlglot-based parser can't confidently
-  resolve column lineage. Disabled entirely unless `ANTHROPIC_API_KEY` is set.
-- **`graph/`** - turns persisted lineage edges into `networkx` graphs and
-  formats them for the frontend's Cytoscape.js viewer (`graph_builder.py`,
-  `graph_filter.py`, `cytoscape_formatter.py`); deliberately decoupled from
-  the ORM and Pydantic schemas so it can be unit tested with plain dicts.
-- **`repositories/`** - the only layer that talks to SQLAlchemy directly:
-  `object_repository.py` (DataObject/Column upserts), `lineage_repository.py`
-  (LineageEdge persistence + raw-dict shaping for `graph/`), `job_repository.py`
-  (ScanJob lifecycle).
-- **`workers/`** - background execution of scan jobs, invoked via FastAPI's
-  `BackgroundTasks` so long-running Impala/Metastore scans don't block API
-  requests: `scan_worker.py` (metadata scans) and `lineage_worker.py`
-  (lineage scans, including the AI fallback decision per view).
-- **`api/`** - the FastAPI routers exposing connections, metadata, scan
-  jobs, and lineage/diagram endpoints under `/api/v1`, wired together in
-  `app/main.py`.
+  ใช้เป็นแค่ fallback เมื่อ parser ที่ใช้ sqlglot ไม่สามารถสรุป column
+  lineage ได้อย่างมั่นใจเท่านั้น จะถูกปิดใช้งานทั้งหมดถ้าไม่ได้ตั้งค่า
+  `ANTHROPIC_API_KEY`
+- **`graph/`** - แปลง lineage edge ที่บันทึกไว้ให้เป็นกราฟแบบ `networkx`
+  และจัดรูปแบบสำหรับตัวแสดงผล Cytoscape.js ของ frontend
+  (`graph_builder.py`, `graph_filter.py`, `cytoscape_formatter.py`)
+  ตั้งใจแยกออกจาก ORM และ Pydantic schema เพื่อให้ unit test ได้ด้วย dict
+  ธรรมดา
+- **`repositories/`** - เลเยอร์เดียวที่คุยกับ SQLAlchemy ตรงๆ:
+  `object_repository.py` (upsert ของ DataObject/Column), `lineage_repository.py`
+  (บันทึก LineageEdge + จัดรูปแบบ raw-dict ให้ `graph/`), `job_repository.py`
+  (วงจรชีวิตของ ScanJob)
+- **`workers/`** - รัน scan job แบบ background ผ่าน `BackgroundTasks` ของ
+  FastAPI เพื่อไม่ให้การสแกน Impala/Metastore ที่ใช้เวลานานไปบล็อก request
+  ของ API: `scan_worker.py` (สแกน metadata) และ `lineage_worker.py`
+  (สแกน lineage รวมถึงตัดสินใจว่าจะ fallback ไปใช้ AI ต่อ view หรือไม่)
+- **`api/`** - FastAPI router ที่เปิด endpoint สำหรับ connections, metadata,
+  scan job, และ lineage/diagram ภายใต้ `/api/v1` ประกอบรวมกันใน
+  `app/main.py`
 
-The Vite/React frontend (`frontend/`) is a separate, already-built
-single-page app that talks to the backend over its `/api/v1` HTTP API and
-renders the lineage graph with Cytoscape.js.
+ฝั่ง Vite/React frontend (`frontend/`) เป็น single-page app แยกออกมาต่างหาก
+ที่คุยกับ backend ผ่าน HTTP API `/api/v1` และแสดงกราฟ lineage ด้วย
+Cytoscape.js
 
-## Directory layout
+## โครงสร้างไดเรกทอรี (Directory layout)
 
 ```
 impala-lineage-service/
 ├── backend/
 │   ├── app/
-│   │   ├── ai/             # Anthropic-backed lineage fallback
-│   │   ├── api/             # FastAPI routers (/api/v1/...)
-│   │   ├── connectors/     # Impala / Hive Metastore clients
+│   │   ├── ai/             # AI fallback ที่ใช้ Anthropic ช่วยหา lineage
+│   │   ├── api/             # FastAPI router (/api/v1/...)
+│   │   ├── connectors/     # ตัวเชื่อมต่อ Impala / Hive Metastore
 │   │   ├── core/           # config, database session, security, logging
-│   │   ├── graph/          # lineage graph construction & formatting
-│   │   ├── metadata/       # metadata scanning/loading
-│   │   ├── models/         # SQLAlchemy models (mirrored by the Alembic migration)
-│   │   ├── parsers/        # sqlglot-based SQL lineage parsing
-│   │   ├── repositories/    # SQLAlchemy query layer
-│   │   ├── schemas/        # Pydantic request/response schemas
-│   │   ├── workers/         # background scan/lineage jobs
-│   │   └── main.py          # FastAPI app assembly
+│   │   ├── graph/          # สร้างและจัดรูปแบบกราฟ lineage
+│   │   ├── metadata/       # สแกน/โหลด metadata
+│   │   ├── models/         # SQLAlchemy models (ตรงกับ Alembic migration)
+│   │   ├── parsers/        # แปลง SQL lineage ด้วย sqlglot
+│   │   ├── repositories/    # เลเยอร์ query ของ SQLAlchemy
+│   │   ├── schemas/        # Pydantic request/response schema
+│   │   ├── workers/         # scan/lineage job แบบ background
+│   │   └── main.py          # ประกอบรวม FastAPI app
 │   ├── scripts/
-│   │   └── seed_connections.py  # register a Connection from IMPALA_* env vars
+│   │   └── seed_connections.py  # ลงทะเบียน Connection จากตัวแปร IMPALA_*
 │   ├── tests/
 │   ├── Dockerfile
 │   ├── requirements.txt
-│   └── .env.example        # copy to .env
+│   └── .env.example        # ก็อปปี้ไปเป็น .env
 ├── database/
-│   └── migrations/         # Alembic environment (sibling of backend/, not inside it)
+│   └── migrations/         # Alembic environment (อยู่ข้าง backend/ ไม่ได้อยู่ข้างใน)
 │       ├── alembic.ini
 │       ├── env.py
 │       ├── script.py.mako
 │       └── versions/
 │           └── 0001_initial_schema.py
-├── frontend/                # Vite/React SPA (own Dockerfile, not covered here)
+├── frontend/                # Vite/React SPA (มี Dockerfile ของตัวเอง ไม่ได้พูดถึงในนี้)
 ├── docker-compose.yml
 └── README.md
 ```
 
-## Local setup
+## การติดตั้งบนเครื่อง (Local setup)
 
-### 1. Configure the backend environment
+### 1. ตั้งค่า environment ของ backend
 
 ```bash
-# from the repo root
+# รันจาก root ของ repo
 cp backend/.env.example backend/.env
 ```
 
 ```powershell
-# PowerShell equivalent
+# เทียบเท่าบน PowerShell
 Copy-Item backend\.env.example backend\.env
 ```
 
-Edit `backend/.env` and fill in real values, at minimum `SECRET_KEY`. Set
-`ANTHROPIC_API_KEY` if you want the AI-assisted lineage fallback available
-(see note below).
+เปิด `backend/.env` แล้วกรอกค่าจริง อย่างน้อยต้องมี `SECRET_KEY` ตั้งค่า
+`ANTHROPIC_API_KEY` ด้วยถ้าต้องการเปิดใช้ AI-assisted lineage fallback
+(ดูหมายเหตุด้านล่าง)
 
-### 2. Start Postgres only
+### 2. เริ่มแค่ Postgres ก่อน
 
 ```bash
 docker compose up -d postgres
@@ -116,51 +159,63 @@ docker compose up -d postgres
 docker compose up -d postgres
 ```
 
-Wait for it to report healthy (`docker compose ps`).
+รอจนสถานะเป็น healthy (เช็คด้วย `docker compose ps`)
 
-### 3. Run the initial migration
+### 3. รัน migration ครั้งแรก
 
-The Alembic environment lives in `database/migrations/`, a sibling of
-`backend/`, so `env.py` puts `backend/` on `sys.path` itself - you don't need
-to install the `app` package. You do need the same Python dependencies
-installed (at least `alembic` and everything `app.core.config`/`app.models`
-import), and `DATABASE_URL` reachable from wherever you run this command
-(`localhost:5432` if you're running it directly on the host against the
-`postgres` container's published port, which is what `backend/.env.example`
-defaults to).
+Alembic environment อยู่ที่ `database/migrations/` ซึ่งอยู่ข้างๆ `backend/`
+(sibling directory) ดังนั้น `env.py` จะเพิ่ม `backend/` เข้า `sys.path`
+ให้เองไม่ต้อง install package `app` เพิ่ม แต่ยังต้องมี Python dependency
+ชุดเดียวกันติดตั้งอยู่ (อย่างน้อย `alembic` และทุกอย่างที่
+`app.core.config`/`app.models` import) และต้องเชื่อมต่อ `DATABASE_URL`
+ได้จากที่ที่รันคำสั่งนี้ (`localhost:5432` ถ้ารันตรงบนเครื่อง host เข้าไปยัง
+port ที่ container `postgres` เปิดไว้ ซึ่งเป็นค่า default ของ
+`backend/.env.example`)
 
-From the `backend/` directory, with a virtualenv containing
-`backend/requirements.txt` installed:
+ต้องใช้ **Python 3.10 ขึ้นไป** (ตัว Docker image เองใช้ 3.11) — เพราะ
+`networkx==3.3` ใน `requirements.txt` ตัด support Python 3.9 ไปแล้ว ถ้าใช้
+Python เก่ากว่านี้ `pip install` จะ error
+`No matching distribution found for networkx==3.3` บน Windows ที่ใช้
+pyenv-win ให้สร้าง venv โดยระบุเวอร์ชัน Python ตรงๆ ไปเลย ไม่ต้องพึ่ง
+`python` shim ที่อาจยังไม่อัปเดตตาม `pyenv local` ที่สลับไว้:
+`& "$env:USERPROFILE\.pyenv\pyenv-win\versions\<3.10.x ขึ้นไป>\python.exe" -m venv .venv`
+
+รันจากไดเรกทอรี `backend/` โดยมี virtualenv ที่ install
+`backend/requirements.txt` แล้ว:
 
 ```bash
-# from backend/
+# รันจาก backend/
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 alembic -c ../database/migrations/alembic.ini upgrade head
 ```
 
 ```powershell
-# from backend/
+# รันจาก backend/
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 alembic -c ..\database\migrations\alembic.ini upgrade head
 ```
 
-`env.py` reads `DATABASE_URL` via `app.core.config.get_settings()` (i.e. from
-`backend/.env` or your real process environment) - `alembic.ini`'s own
-`sqlalchemy.url` is intentionally left blank.
+`env.py` อ่านค่า `DATABASE_URL` ผ่าน `app.core.config.get_settings()`
+(คืออ่านจาก `backend/.env` หรือ process environment จริง) — ค่า
+`sqlalchemy.url` ใน `alembic.ini` เองตั้งใจเว้นว่างไว้
 
-> This project does not run migrations automatically from the backend
-> container's entrypoint. `database/migrations` is mounted read-only into the
-> `backend` container at `/migrations` for convenience, so you can also run
-> the same command inside the running container instead of a local venv:
-> `docker compose exec backend alembic -c /migrations/alembic.ini upgrade head`
-> (either way works; a manual step was chosen over baking it into `CMD` so
-> that container restarts never silently re-run migrations, and so a
-> migration failure doesn't crash the API process).
+> โปรเจกต์นี้ไม่ได้รัน migration อัตโนมัติจาก entrypoint ของ backend
+> container `database/migrations` ถูก mount แบบ read-only เข้า container
+> `backend` ที่ `/migrations` เพื่อความสะดวก ดังนั้นจะรันคำสั่งเดียวกันนี้
+> จากใน container ที่กำลังทำงานอยู่แทน local venv ก็ได้:
+> `docker compose exec -w /migrations backend alembic -c alembic.ini upgrade head`
+> (ทำแบบไหนก็ได้ผลเหมือนกัน — ที่เลือกให้เป็นขั้นตอนที่ต้องรันเองแทนการฝังไว้ใน
+> `CMD` ก็เพื่อไม่ให้ container restart แล้วรัน migration ซ้ำแบบไม่รู้ตัว และ
+> เพื่อไม่ให้ migration ที่ล้มเหลวไป crash ตัว API process) ค่า `-w /migrations`
+> สำคัญมาก: `script_location = .` ใน `alembic.ini` จะถูกตีความเทียบกับ
+> ไดเรกทอรีที่รันคำสั่งอยู่ ไม่ใช่เทียบกับตำแหน่งไฟล์ `.ini` เอง ถ้ารันจาก
+> working directory เริ่มต้นของ container (`/app`) จะ error
+> `Can't find Python file ./env.py`
 
-### 4. Bring everything up
+### 4. เปิดใช้งานทั้งระบบ
 
 ```bash
 docker compose up --build
@@ -173,26 +228,25 @@ docker compose up --build
 - Backend: http://localhost:9000
 - Frontend: http://localhost:5173
 
-> **Frontend API URL is baked in at build time.** `VITE_API_BASE_URL` is a
-> Vite build-time variable, not a runtime one - the `frontend` service's
-> Dockerfile compiles it into the static JS bundle. `docker-compose.yml`
-> passes it as a build arg (`http://localhost:9000/api/v1`, matching the
-> backend's host port mapping above) so `docker compose up --build` picks it
-> up automatically. If you change the backend's host port again, update that
-> build arg too and rebuild with `docker compose build --build-arg
-> VITE_API_BASE_URL=... frontend` - setting it as a container environment
-> variable at `docker compose up` time has no effect on an already-built
-> bundle.
+> **URL ของ API ฝั่ง frontend ถูกฝังไว้ตอน build time** `VITE_API_BASE_URL`
+> เป็นตัวแปรระดับ build time ของ Vite ไม่ใช่ runtime — Dockerfile ของ service
+> `frontend` จะคอมไพล์ค่านี้เข้าไปใน static JS bundle เลย `docker-compose.yml`
+> ส่งค่านี้เป็น build arg (`http://localhost:9000/api/v1` ตรงกับ port ของ
+> backend ด้านบน) ดังนั้น `docker compose up --build` จะได้ค่านี้ไปใช้เองอยู่แล้ว
+> ถ้าเปลี่ยน host port ของ backend อีก ต้องอัปเดต build arg นี้ด้วยแล้ว build
+> ใหม่ด้วย `docker compose build --build-arg VITE_API_BASE_URL=... frontend`
+> — การตั้งเป็น environment variable ของ container ตอน `docker compose up`
+> จะไม่มีผลอะไรกับ bundle ที่ build ไปแล้ว
 
-### 5. (Optional) Seed a real Impala connection
+### 5. (ทางเลือก) Seed ข้อมูลเชื่อมต่อ Impala จริง
 
-Rather than adding your first `Connection` by hand through the API/UI, you
-can set `IMPALA_HOST`/`IMPALA_PORT`/`IMPALA_USER`/`IMPALA_PASS` (and
-optionally `IMPALA_CONNECTION_NAME`/`IMPALA_DEFAULT_DATABASE`/
-`IMPALA_AUTH_MECHANISM`/`IMPALA_USE_SSL`) in `backend/.env` and run:
+แทนที่จะเพิ่ม `Connection` แรกด้วยมือผ่าน API/UI สามารถตั้งค่า
+`IMPALA_HOST`/`IMPALA_PORT`/`IMPALA_USER`/`IMPALA_PASS` (และถ้าต้องการ
+`IMPALA_CONNECTION_NAME`/`IMPALA_DEFAULT_DATABASE`/`IMPALA_AUTH_MECHANISM`/
+`IMPALA_USE_SSL`) ใน `backend/.env` แล้วรัน:
 
 ```bash
-# from backend/, with the venv from step 3 active
+# รันจาก backend/ โดยเปิด venv จากขั้นตอนที่ 3 ไว้
 python scripts/seed_connections.py
 ```
 
@@ -200,50 +254,50 @@ python scripts/seed_connections.py
 python scripts\seed_connections.py
 ```
 
-This is idempotent (re-running it updates the existing row by
-`IMPALA_CONNECTION_NAME` instead of duplicating it) and encrypts the
-password the same way the API does before storing it. It only reads
-`IMPALA_*` variables - it never appears in git history or `.env.example`
-with real values, since `backend/.env` is git-ignored.
+คำสั่งนี้ idempotent (รันซ้ำจะอัปเดตแถวเดิมตาม `IMPALA_CONNECTION_NAME`
+ไม่สร้างซ้ำ) และเข้ารหัสรหัสผ่านด้วยวิธีเดียวกับที่ API ใช้ก่อนบันทึก
+มันอ่านแค่ตัวแปร `IMPALA_*` เท่านั้น — จะไม่ปรากฏใน git history หรือใน
+`.env.example` ด้วยค่าจริงเด็ดขาด เพราะ `backend/.env` ถูกกันไว้ใน
+`.gitignore` อยู่แล้ว
 
-## Key environment variables
+## ตัวแปรสภาพแวดล้อมที่สำคัญ (Key environment variables)
 
-All of these are read by `backend/app/core/config.py::Settings` from
-`backend/.env` (see `backend/.env.example`):
+ตัวแปรทั้งหมดนี้ถูกอ่านโดย `backend/app/core/config.py::Settings` จาก
+`backend/.env` (ดู `backend/.env.example`):
 
-| Variable | Default | Purpose |
+| ตัวแปร | ค่า default | ใช้ทำอะไร |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+psycopg2://lineage:lineage@localhost:5432/lineage` | SQLAlchemy connection string. Overridden in `docker-compose.yml` to target the `postgres` service hostname. |
-| `SECRET_KEY` | *(dev placeholder, change in prod)* | Derives the Fernet key used to encrypt stored connection credentials. |
-| `API_KEY` | *(none)* | If set, all API requests must send it in the `X-API-Key` header. |
-| `CORS_ORIGINS` | `["http://localhost:5173"]` | JSON array of allowed frontend origins. |
-| `ANTHROPIC_API_KEY` | *(none)* | Enables the AI-assisted lineage fallback. See note below. |
-| `ANTHROPIC_MODEL` | `claude-sonnet-5` | Model used for the AI lineage fallback. |
-| `AI_LINEAGE_FALLBACK_ENABLED` | `true` | Master switch for the fallback; still requires `ANTHROPIC_API_KEY`. |
-| `DEFAULT_QUERY_TIMEOUT_SECONDS` | `120` | Timeout applied to Impala/Metastore queries during scans. |
-| `SCAN_MAX_CONCURRENT_OBJECTS` | `8` | Max objects scanned concurrently per scan job. |
-| `APP_NAME`, `ENVIRONMENT`, `LOG_LEVEL` | | General app metadata / logging. |
+| `DATABASE_URL` | `postgresql+psycopg2://lineage:lineage@localhost:5432/lineage` | connection string ของ SQLAlchemy ถูก override ใน `docker-compose.yml` ให้ชี้ไปที่ hostname ของ service `postgres` |
+| `SECRET_KEY` | *(ค่า placeholder สำหรับ dev เปลี่ยนก่อนใช้จริง)* | ใช้สร้าง Fernet key สำหรับเข้ารหัส credential ของ connection ที่บันทึกไว้ |
+| `API_KEY` | *(ไม่มี)* | ถ้าตั้งค่าไว้ ทุก request ของ API ต้องส่งค่านี้มาใน header `X-API-Key` |
+| `CORS_ORIGINS` | `["http://localhost:5173"]` | รายการ origin ของ frontend ที่อนุญาต (เป็น JSON array) |
+| `ANTHROPIC_API_KEY` | *(ไม่มี)* | เปิดใช้งาน AI-assisted lineage fallback ดูหมายเหตุด้านล่าง |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5` | โมเดลที่ใช้สำหรับ AI lineage fallback |
+| `AI_LINEAGE_FALLBACK_ENABLED` | `true` | สวิตช์หลักของ fallback นี้ ยังต้องมี `ANTHROPIC_API_KEY` ด้วย |
+| `DEFAULT_QUERY_TIMEOUT_SECONDS` | `120` | timeout ที่ใช้กับ query ของ Impala/Metastore ระหว่างสแกน |
+| `SCAN_MAX_CONCURRENT_OBJECTS` | `8` | จำนวน object สูงสุดที่สแกนพร้อมกันต่อ scan job |
+| `APP_NAME`, `ENVIRONMENT`, `LOG_LEVEL` | | ข้อมูลทั่วไปของแอป / การตั้งค่า logging |
 
 ### AI-assisted lineage fallback
 
-When the static `sqlglot`-based parser can't confidently resolve
-column-level lineage for a view, the service can optionally make a single
-tool-use call to Claude to fill in the gap. This is **entirely optional**:
-if `ANTHROPIC_API_KEY` is not set, the fallback is silently skipped (not an
-error) regardless of `AI_LINEAGE_FALLBACK_ENABLED` - lineage resolution just
-stops at whatever the static parser could determine.
+เมื่อ parser แบบ static ที่ใช้ `sqlglot` ไม่สามารถสรุปผล column-level
+lineage ของ view ได้อย่างมั่นใจ บริการนี้สามารถเรียก Claude แบบ tool-use
+หนึ่งครั้งเพื่อช่วยเติมส่วนที่ขาดได้ (เป็นทางเลือก ไม่บังคับ): ถ้าไม่ได้ตั้งค่า
+`ANTHROPIC_API_KEY` ไว้ ระบบจะข้าม fallback นี้ไปเงียบๆ (ไม่ error) ไม่ว่า
+`AI_LINEAGE_FALLBACK_ENABLED` จะเป็นอะไรก็ตาม — การหา lineage จะหยุดอยู่
+แค่เท่าที่ static parser หาได้เท่านั้น
 
-## Notes / deviations from a literal reading of the spec
+## หมายเหตุ / ส่วนที่ทำต่างจาก spec แบบตรงตัว
 
-- The Alembic migration hand-encodes the exact runtime behavior of
-  SQLAlchemy's `Enum(SomePyEnum)` column type: by default it persists the
-  Python enum member's **name**, not its `.value`. This only matters for
-  `ConnectionType` (`IMPALA`/`HIVE_METASTORE` are the persisted values, not
-  the lowercase `impala`/`hive_metastore` `.value`s) - every other enum's
-  name and value happen to be identical strings. All seven Postgres enum
-  types are created with explicit `create_type=False` and are
-  created/dropped explicitly in `upgrade()`/`downgrade()` to avoid
-  duplicate-type errors.
-- `backend`'s `docker-compose.yml` service does not have a `healthcheck`, so
-  `frontend`'s `depends_on: backend` only waits for the container to start,
-  not for the API to be ready to serve requests.
+- Alembic migration เขียนโค้ดจำลอง (hand-encode) พฤติกรรมจริงของ column
+  type `Enum(SomePyEnum)` ของ SQLAlchemy ไว้ตรงๆ: โดย default แล้วมันจะเก็บ
+  **ชื่อ** (name) ของ enum member ของ Python ไม่ใช่ค่า `.value` ของมัน
+  เรื่องนี้มีผลแค่กับ `ConnectionType` เท่านั้น (ค่าที่เก็บจริงคือ
+  `IMPALA`/`HIVE_METASTORE` ไม่ใช่ `.value` ตัวพิมพ์เล็ก
+  `impala`/`hive_metastore`) — enum ตัวอื่นๆทุกตัวชื่อกับค่าบังเอิญเป็น
+  string เดียวกันอยู่แล้ว ทั้งเจ็ด Postgres enum type ถูกสร้างด้วย
+  `create_type=False` ตรงๆ และถูกสร้าง/ลบเองใน `upgrade()`/`downgrade()`
+  เพื่อไม่ให้เจอ error ประเภทซ้ำ (duplicate-type)
+- service `backend` ใน `docker-compose.yml` ไม่มี `healthcheck` ทำให้
+  `depends_on: backend` ของ `frontend` รอแค่ container เริ่มทำงานเท่านั้น
+  ไม่ได้รอจนกว่า API จะพร้อมรับ request จริงๆ
