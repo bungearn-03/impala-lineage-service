@@ -20,6 +20,21 @@ class ObjectRepository:
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def get_by_ids(self, object_ids: list[str]) -> list[DataObject]:
+        """Fetch DataObjects by id regardless of which database/connection they
+        belong to -- backs the custom cross-database diagram picker. Silently
+        drops any id that doesn't exist rather than erroring, since a saved
+        preset referencing a since-deleted object should still render the
+        objects that are still there."""
+        if not object_ids:
+            return []
+        stmt = (
+            select(DataObject)
+            .where(DataObject.id.in_(object_ids))
+            .options(selectinload(DataObject.columns))
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def get_by_identity(self, connection_id: str, database_name: str, object_name: str) -> DataObject | None:
         stmt = select(DataObject).where(
             DataObject.connection_id == connection_id,

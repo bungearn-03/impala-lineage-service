@@ -23,6 +23,13 @@ def list_objects(connection_id: str, database_name: str, db: Session = Depends(g
     return ObjectRepository(db).list_by_database(connection_id, database_name)
 
 
+@router.get("/connections/{connection_id}/objects", response_model=list[DataObjectSummary])
+def list_all_objects(connection_id: str, db: Session = Depends(get_db)):
+    """Every scanned object across every database on this connection --
+    backs the custom cross-database diagram picker's search list."""
+    return ObjectRepository(db).list_by_connection(connection_id)
+
+
 @router.get("/objects/{object_id}", response_model=DataObjectDetail)
 def get_object(object_id: str, db: Session = Depends(get_db)):
     obj = ObjectRepository(db).get_by_id(object_id)

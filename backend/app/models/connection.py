@@ -51,3 +51,6 @@ class Connection(Base):
     scan_jobs: Mapped[list["ScanJob"]] = relationship(
         back_populates="connection", cascade="all, delete-orphan"
     )
+    custom_diagram_presets: Mapped[list["CustomDiagramPreset"]] = relationship(
+        back_populates="connection", cascade="all, delete-orphan"
+    )

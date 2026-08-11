@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import Connections from "./pages/Connections";
+import CustomDiagram from "./pages/CustomDiagram";
 import DatabaseDiagram from "./pages/DatabaseDiagram";
 import DatabaseExplorer from "./pages/DatabaseExplorer";
 import DiagramViewer from "./pages/DiagramViewer";
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/connections" replace />} />
           <Route path="/connections" element={<Connections />} />
           <Route path="/connections/:connectionId/explorer" element={<DatabaseExplorer />} />
+          <Route path="/connections/:connectionId/custom-diagram" element={<CustomDiagram />} />
           <Route path="/connections/:connectionId/databases/:databaseName/diagram" element={<DatabaseDiagram />} />
           <Route path="/diagram/:objectId" element={<DiagramViewer />} />
           <Route path="/scans" element={<ScanJobs />} />

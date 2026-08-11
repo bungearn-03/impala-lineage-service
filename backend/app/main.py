@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import connections, diagrams, lineage, metadata, scans
+from app.api import connections, custom_diagram_presets, diagrams, lineage, metadata, scans
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
@@ -28,6 +28,7 @@ app.include_router(metadata.router, prefix=API_PREFIX)
 app.include_router(scans.router, prefix=API_PREFIX)
 app.include_router(lineage.router, prefix=API_PREFIX)
 app.include_router(diagrams.router, prefix=API_PREFIX)
+app.include_router(custom_diagram_presets.router, prefix=API_PREFIX)
 
 
 @app.get(f"{API_PREFIX}/health", tags=["health"])

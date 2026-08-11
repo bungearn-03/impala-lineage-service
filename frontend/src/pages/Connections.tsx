@@ -185,6 +185,9 @@ export default function Connections() {
                           <Link className="btn btn-sm" to={`/connections/${conn.id}/explorer`}>
                             Explore
                           </Link>
+                          <Link className="btn btn-sm" to={`/connections/${conn.id}/custom-diagram`}>
+                            Custom Diagram
+                          </Link>
                           <button className="btn btn-sm btn-danger" onClick={() => handleDelete(conn.id)}>
                             Delete
                           </button>

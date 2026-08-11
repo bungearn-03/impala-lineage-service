@@ -22,12 +22,14 @@ export default function DatabaseExplorer() {
   const [databasesLoading, setDatabasesLoading] = useState(true);
   const [databasesError, setDatabasesError] = useState<string | null>(null);
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  const [dbFilter, setDbFilter] = useState("");
 
   const [scanState, setScanState] = useState<"idle" | "loading" | "started" | "error">("idle");
 
   const [objects, setObjects] = useState<DataObjectSummary[]>([]);
   const [objectsLoading, setObjectsLoading] = useState(false);
   const [objectsError, setObjectsError] = useState<string | null>(null);
+  const [objFilter, setObjFilter] = useState("");
 
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [objectDetail, setObjectDetail] = useState<DataObjectDetail | null>(null);
@@ -68,6 +70,7 @@ export default function DatabaseExplorer() {
     setObjectsError(null);
     setSelectedObjectId(null);
     setObjectDetail(null);
+    setObjFilter("");
     listObjects(connectionId, selectedDb)
       .then(setObjects)
       .catch((err) => setObjectsError(describeError(err)))
@@ -84,6 +87,13 @@ export default function DatabaseExplorer() {
       .finally(() => setDetailLoading(false));
   }, [selectedObjectId]);
 
+  const filteredDatabases = databases.filter((db) =>
+    db.database_name.toLowerCase().includes(dbFilter.trim().toLowerCase())
+  );
+  const filteredObjects = objects.filter((obj) =>
+    obj.object_name.toLowerCase().includes(objFilter.trim().toLowerCase())
+  );
+
   return (
     <div className="stack">
       <h1>Database Explorer</h1>
@@ -97,106 +107,150 @@ export default function DatabaseExplorer() {
           <h3>Databases</h3>
           {databasesLoading && <p className="muted">Loading...</p>}
           {databasesError && <p className="error-text">{databasesError}</p>}
-          {!databasesLoading && !databasesError && (
-            <ul className="list-reset stack" style={{ gap: "0.5rem" }}>
-              {databases.map((db) => (
-                <li
-                  key={db.database_name}
-                  className={`db-card ${selectedDb === db.database_name ? "selected" : ""}`}
-                >
-                  <button className="db-card-main" onClick={() => setSelectedDb(db.database_name)}>
-                    <span>{db.database_name}</span>
-                    <span className="db-card-counts">
-                      {db.table_count}t / {db.view_count}v
-                    </span>
-                  </button>
-                  <Link
-                    className="db-card-diagram-link"
-                    to={`/connections/${connectionId}/databases/${encodeURIComponent(db.database_name)}/diagram`}
-                    title="View this database as a whole ER-style diagram"
+          {!databasesLoading && !databasesError && databases.length > 0 && (
+            <>
+              <div className="panel-toolbar">
+                <input
+                  className="search-input"
+                  type="text"
+                  placeholder="Filter databases..."
+                  value={dbFilter}
+                  onChange={(e) => setDbFilter(e.target.value)}
+                />
+                <span className="panel-count">
+                  {filteredDatabases.length} / {databases.length}
+                </span>
+              </div>
+              <ul className="list-reset stack db-list-scroll" style={{ gap: "0.5rem" }}>
+                {filteredDatabases.map((db) => (
+                  <li
+                    key={db.database_name}
+                    className={`db-card ${selectedDb === db.database_name ? "selected" : ""}`}
                   >
-                    DR Diagram
-                  </Link>
-                </li>
-              ))}
-              {databases.length === 0 && (
-                <li className="stack" style={{ gap: "0.5rem" }}>
-                  <span className="muted">
-                    No databases found yet. This connection hasn't been scanned, or the last scan hasn't
-                    finished.
-                  </span>
-                  <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={handleScanNow}
-                      disabled={scanState === "loading"}
-                    >
-                      {scanState === "loading" ? "Starting..." : "Run Metadata Scan"}
-                    </button>
-                    {scanState === "started" && (
-                      <span className="muted" style={{ fontSize: "0.75rem" }}>
-                        Started &middot; <Link to="/scans">watch progress &rarr;</Link>
+                    <button className="db-card-main" onClick={() => setSelectedDb(db.database_name)}>
+                      <span>{db.database_name}</span>
+                      <span className="db-card-counts">
+                        {db.table_count}t / {db.view_count}v
                       </span>
-                    )}
-                    {scanState === "error" && <span className="error-text">Failed to start scan</span>}
-                  </div>
-                </li>
+                    </button>
+                    <Link
+                      className="db-card-diagram-link"
+                      to={`/connections/${connectionId}/databases/${encodeURIComponent(db.database_name)}/diagram`}
+                      title="View this database as a whole ER-style diagram"
+                    >
+                      DR Diagram
+                    </Link>
+                  </li>
+                ))}
+                {filteredDatabases.length === 0 && (
+                  <li className="empty-state">
+                    <p>No databases match &ldquo;{dbFilter}&rdquo;.</p>
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+          {!databasesLoading && !databasesError && databases.length === 0 && (
+            <div className="empty-state">
+              <p>
+                No databases found yet. This connection hasn't been scanned, or the last scan hasn't
+                finished.
+              </p>
+              <div className="row" style={{ gap: "0.5rem", alignItems: "center", justifyContent: "center" }}>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={handleScanNow}
+                  disabled={scanState === "loading"}
+                >
+                  {scanState === "loading" ? "Starting..." : "Run Metadata Scan"}
+                </button>
+              </div>
+              {scanState === "started" && (
+                <span className="muted" style={{ fontSize: "0.75rem" }}>
+                  Started &middot; <Link to="/scans">watch progress &rarr;</Link>
+                </span>
               )}
-            </ul>
+              {scanState === "error" && <span className="error-text">Failed to start scan</span>}
+            </div>
           )}
         </div>
 
         <div className="panel">
           <h3>Objects {selectedDb ? `in ${selectedDb}` : ""}</h3>
-          {!selectedDb && <p className="muted">Select a database.</p>}
+          {!selectedDb && (
+            <div className="empty-state">
+              <p>Select a database to see its tables and views.</p>
+            </div>
+          )}
           {objectsLoading && <p className="muted">Loading objects...</p>}
           {objectsError && <p className="error-text">{objectsError}</p>}
-          {selectedDb && !objectsLoading && !objectsError && (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {objects.map((obj) => (
-                  <tr
-                    key={obj.id}
-                    className={`clickable-row ${selectedObjectId === obj.id ? "selected" : ""}`}
-                    onClick={() => setSelectedObjectId(obj.id)}
-                  >
-                    <td>{obj.object_name}</td>
-                    <td>
-                      <span
-                        className={
-                          obj.object_type === "TABLE" ? "badge badge-object-table" : "badge badge-object-view"
-                        }
+          {selectedDb && !objectsLoading && !objectsError && objects.length > 0 && (
+            <>
+              <div className="panel-toolbar">
+                <input
+                  className="search-input"
+                  type="text"
+                  placeholder="Filter tables and views..."
+                  value={objFilter}
+                  onChange={(e) => setObjFilter(e.target.value)}
+                />
+                <span className="panel-count">
+                  {filteredObjects.length} / {objects.length}
+                </span>
+              </div>
+              <div className="db-list-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredObjects.map((obj) => (
+                      <tr
+                        key={obj.id}
+                        className={`clickable-row ${selectedObjectId === obj.id ? "selected" : ""}`}
+                        onClick={() => setSelectedObjectId(obj.id)}
                       >
-                        {obj.object_type}
-                      </span>
-                    </td>
-                    <td>
-                      <Link
-                        className="btn btn-sm"
-                        to={`/diagram/${obj.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        View Diagram
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-                {objects.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="muted">
-                      No objects in this database.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                        <td>{obj.object_name}</td>
+                        <td>
+                          <span
+                            className={
+                              obj.object_type === "TABLE" ? "badge badge-object-table" : "badge badge-object-view"
+                            }
+                          >
+                            {obj.object_type}
+                          </span>
+                        </td>
+                        <td>
+                          <Link
+                            className="btn btn-sm"
+                            to={`/diagram/${obj.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            View Diagram
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredObjects.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="muted">
+                          No tables or views match &ldquo;{objFilter}&rdquo;.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {selectedDb && !objectsLoading && !objectsError && objects.length === 0 && (
+            <div className="empty-state">
+              <p>No objects in this database.</p>
+            </div>
           )}
         </div>
 
@@ -206,7 +260,9 @@ export default function DatabaseExplorer() {
           {!detailLoading && !detailError && objectDetail && <ObjectPanel object={objectDetail} />}
           {!detailLoading && !detailError && !objectDetail && (
             <div className="panel">
-              <p className="muted">Select an object to view its details.</p>
+              <div className="empty-state">
+                <p>Select an object to view its details.</p>
+              </div>
             </div>
           )}
         </div>

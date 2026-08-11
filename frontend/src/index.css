@@ -325,9 +325,18 @@ label {
 
 .three-col-layout {
   display: grid;
-  grid-template-columns: 250px 1fr 340px;
+  /* minmax (not fixed px) so the outer columns can shrink on narrower
+     windows instead of forcing horizontal scroll / a browser zoom-out to
+     see the whole layout - they still won't shrink past a usable width. */
+  grid-template-columns: minmax(200px, 250px) minmax(320px, 1fr) minmax(240px, 340px);
   gap: 1rem;
   align-items: start;
+}
+
+@media (max-width: 1300px) {
+  .three-col-layout {
+    grid-template-columns: minmax(180px, 210px) minmax(280px, 1fr) minmax(220px, 280px);
+  }
 }
 
 .db-card {
@@ -358,6 +367,7 @@ label {
   background: transparent;
   box-shadow: none;
   padding: 0.55rem 0.7rem;
+  font: inherit;
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
@@ -400,6 +410,63 @@ label {
   background: var(--color-primary);
   color: white;
   border-top-color: var(--color-primary);
+}
+
+.db-card-diagram-link.danger:hover {
+  background: var(--color-danger);
+  border-top-color: var(--color-danger);
+}
+
+.db-list-scroll {
+  max-height: calc(100vh - 320px);
+  min-height: 200px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.panel-toolbar .search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.panel-count {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1.25rem;
+  color: var(--color-muted);
+}
+
+.empty-state-icon {
+  font-size: 1.8rem;
+  opacity: 0.5;
+  margin-bottom: 0.25rem;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 900px) {

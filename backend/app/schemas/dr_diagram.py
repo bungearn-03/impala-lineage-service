@@ -33,3 +33,7 @@ class DrDiagramResponse(BaseModel):
     table_count: int
     view_count: int
     relationship_count: int
+
+
+class ObjectIdsRequest(BaseModel):
+    object_ids: list[str]

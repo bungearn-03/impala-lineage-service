@@ -262,6 +262,11 @@ export async function listObjects(connectionId: string, db: string): Promise<Dat
   return res.data;
 }
 
+export async function listAllObjects(connectionId: string): Promise<DataObjectSummary[]> {
+  const res = await apiClient.get<DataObjectSummary[]>(`/connections/${connectionId}/objects`);
+  return res.data;
+}
+
 export async function getObject(objectId: string): Promise<DataObjectDetail> {
   const res = await apiClient.get<DataObjectDetail>(`/objects/${objectId}`);
   return res.data;
@@ -367,6 +372,58 @@ export async function getDrDiagram(connectionId: string, databaseName: string): 
     `/diagrams/dr/${connectionId}/${encodeURIComponent(databaseName)}`
   );
   return res.data;
+}
+
+export async function getCustomDrDiagram(objectIds: string[]): Promise<DrDiagramResponse> {
+  const res = await apiClient.post<DrDiagramResponse>("/diagrams/dr/by-ids", { object_ids: objectIds });
+  return res.data;
+}
+
+// ---------------------------------------------------------------------------
+// Custom diagram presets -- a named, saved selection of object ids (any mix
+// of databases within one connection) for the custom diagram picker.
+// ---------------------------------------------------------------------------
+
+export interface CustomDiagramPresetRead {
+  id: string;
+  connection_id: string;
+  name: string;
+  object_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listCustomDiagramPresets(connectionId: string): Promise<CustomDiagramPresetRead[]> {
+  const res = await apiClient.get<CustomDiagramPresetRead[]>(`/connections/${connectionId}/custom-diagrams`);
+  return res.data;
+}
+
+export async function createCustomDiagramPreset(
+  connectionId: string,
+  name: string,
+  objectIds: string[]
+): Promise<CustomDiagramPresetRead> {
+  const res = await apiClient.post<CustomDiagramPresetRead>(`/connections/${connectionId}/custom-diagrams`, {
+    name,
+    object_ids: objectIds,
+  });
+  return res.data;
+}
+
+export async function updateCustomDiagramPreset(
+  connectionId: string,
+  presetId: string,
+  data: { name?: string; object_ids?: string[] }
+): Promise<CustomDiagramPresetRead> {
+  const res = await apiClient.put<CustomDiagramPresetRead>(
+    `/connections/${connectionId}/custom-diagrams/${presetId}`,
+    data
+  );
+  return res.data;
+}
+
+export async function deleteCustomDiagramPreset(connectionId: string, presetId: string): Promise<void> {
+  await apiClient.delete(`/connections/${connectionId}/custom-diagrams/${presetId}`);
 }
 
 export async function getHealth(): Promise<HealthResponse> {
