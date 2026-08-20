@@ -105,6 +105,41 @@ export default function CustomDiagram() {
     setNewPresetName("");
   }
 
+  const allFilteredIds = useMemo(
+    () => groupedObjects.flatMap(([, objs]) => objs.map((o) => o.id)),
+    [groupedObjects]
+  );
+  const allFilteredSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.has(id));
+
+  // Selects every object currently visible under the search filter (i.e.
+  // across every database, not just the one the user happens to be scrolled
+  // to) instead of requiring one click per table -- individual checkboxes
+  // stay available afterward to exclude specific ones from that bulk pick.
+  function selectAllFiltered() {
+    setSelectedIds((prev) => new Set([...prev, ...allFilteredIds]));
+    setActivePresetId(null);
+  }
+
+  function deselectAllFiltered() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      allFilteredIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    setActivePresetId(null);
+  }
+
+  function toggleDatabase(objs: DataObjectSummary[]) {
+    const ids = objs.map((o) => o.id);
+    const allSelected = ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
+      return next;
+    });
+    setActivePresetId(null);
+  }
+
   function loadPreset(preset: CustomDiagramPresetRead) {
     setSelectedIds(new Set(preset.object_ids));
     setActivePresetId(preset.id);
@@ -213,15 +248,36 @@ export default function CustomDiagram() {
                   <span className="panel-count">{selectedIds.size} selected</span>
                 </div>
 
+                <div className="row" style={{ gap: "0.5rem", alignItems: "center", marginBottom: "0.6rem" }}>
+                  <label className="er-toggle" style={{ fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={() => (allFilteredSelected ? deselectAllFiltered() : selectAllFiltered())}
+                    />
+                    <span>
+                      Select all {search.trim() ? "matching" : "databases"} ({allFilteredIds.length} object
+                      {allFilteredIds.length === 1 ? "" : "s"})
+                    </span>
+                  </label>
+                </div>
+
                 <div className="db-list-scroll" style={{ maxHeight: "calc(100vh - 560px)" }}>
-                  {groupedObjects.map(([dbName, objs]) => (
+                  {groupedObjects.map(([dbName, objs]) => {
+                    const dbAllSelected = objs.every((o) => selectedIds.has(o.id));
+                    return (
                     <div key={dbName} style={{ marginBottom: "0.75rem" }}>
-                      <div
-                        className="muted"
+                      <label
+                        className="er-toggle muted"
                         style={{ fontWeight: 700, fontSize: "0.78rem", margin: "0.4rem 0" }}
                       >
-                        {dbName}
-                      </div>
+                        <input
+                          type="checkbox"
+                          checked={dbAllSelected}
+                          onChange={() => toggleDatabase(objs)}
+                        />
+                        <span>{dbName}</span>
+                      </label>
                       <div className="stack" style={{ gap: "0.3rem" }}>
                         {objs.map((obj) => (
                           <label key={obj.id} className="er-toggle">
@@ -242,7 +298,8 @@ export default function CustomDiagram() {
                         ))}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                   {groupedObjects.length === 0 && (
                     <p className="muted">No tables or views match &ldquo;{search}&rdquo;.</p>
                   )}

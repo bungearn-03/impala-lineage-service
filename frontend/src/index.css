@@ -323,6 +323,16 @@ label {
   align-items: start;
 }
 
+.sidebar-layout > * {
+  /* Grid items default to min-width: auto, meaning a track won't shrink
+     narrower than its content's intrinsic width -- a long unbroken row
+     (e.g. a table/database name) in the 1fr column would otherwise widen
+     that column past the viewport and push whatever follows in the same
+     column (like a generated diagram below the picker panel) out to the
+     side, needing a horizontal scroll to find it. */
+  min-width: 0;
+}
+
 .three-col-layout {
   display: grid;
   /* minmax (not fixed px) so the outer columns can shrink on narrower
