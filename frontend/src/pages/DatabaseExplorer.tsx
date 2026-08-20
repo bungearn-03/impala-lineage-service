@@ -110,44 +110,62 @@ export default function DatabaseExplorer() {
           {!databasesLoading && !databasesError && databases.length > 0 && (
             <>
               <div className="panel-toolbar">
-                <input
-                  className="search-input"
-                  type="text"
-                  placeholder="Filter databases..."
-                  value={dbFilter}
-                  onChange={(e) => setDbFilter(e.target.value)}
-                />
+                <div className="search-input-wrap">
+                  <input
+                    className="search-input"
+                    type="text"
+                    placeholder="Filter databases..."
+                    value={dbFilter}
+                    onChange={(e) => setDbFilter(e.target.value)}
+                  />
+                  {dbFilter && (
+                    <button
+                      type="button"
+                      className="search-input-clear"
+                      onClick={() => setDbFilter("")}
+                      title="Clear filter"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
                 <span className="panel-count">
                   {filteredDatabases.length} / {databases.length}
                 </span>
               </div>
-              <ul className="list-reset stack db-list-scroll" style={{ gap: "0.5rem" }}>
-                {filteredDatabases.map((db) => (
-                  <li
-                    key={db.database_name}
-                    className={`db-card ${selectedDb === db.database_name ? "selected" : ""}`}
-                  >
-                    <button className="db-card-main" onClick={() => setSelectedDb(db.database_name)}>
-                      <span>{db.database_name}</span>
-                      <span className="db-card-counts">
-                        {db.table_count}t / {db.view_count}v
-                      </span>
-                    </button>
-                    <Link
-                      className="db-card-diagram-link"
-                      to={`/connections/${connectionId}/databases/${encodeURIComponent(db.database_name)}/diagram`}
-                      title="View this database as a whole ER-style diagram"
+              <div className="db-list-scroll">
+                <ul className="list-reset stack" style={{ gap: "0.5rem" }}>
+                  {filteredDatabases.map((db) => (
+                    <li
+                      key={db.database_name}
+                      className={`db-card ${selectedDb === db.database_name ? "selected" : ""}`}
                     >
-                      DR Diagram
-                    </Link>
-                  </li>
-                ))}
-                {filteredDatabases.length === 0 && (
-                  <li className="empty-state">
-                    <p>No databases match &ldquo;{dbFilter}&rdquo;.</p>
-                  </li>
-                )}
-              </ul>
+                      <button
+                        className="db-card-main"
+                        onClick={() => setSelectedDb(db.database_name)}
+                        title={db.database_name}
+                      >
+                        <span className="db-card-name">{db.database_name}</span>
+                        <span className="db-card-counts">
+                          {db.table_count}t / {db.view_count}v
+                        </span>
+                      </button>
+                      <Link
+                        className="db-card-diagram-link"
+                        to={`/connections/${connectionId}/databases/${encodeURIComponent(db.database_name)}/diagram`}
+                        title="View this database as a whole ER-style diagram"
+                      >
+                        DR Diagram
+                      </Link>
+                    </li>
+                  ))}
+                  {filteredDatabases.length === 0 && (
+                    <li className="empty-state">
+                      <p>No databases match &ldquo;{dbFilter}&rdquo;.</p>
+                    </li>
+                  )}
+                </ul>
+              </div>
             </>
           )}
           {!databasesLoading && !databasesError && databases.length === 0 && (
@@ -187,18 +205,30 @@ export default function DatabaseExplorer() {
           {selectedDb && !objectsLoading && !objectsError && objects.length > 0 && (
             <>
               <div className="panel-toolbar">
-                <input
-                  className="search-input"
-                  type="text"
-                  placeholder="Filter tables and views..."
-                  value={objFilter}
-                  onChange={(e) => setObjFilter(e.target.value)}
-                />
+                <div className="search-input-wrap">
+                  <input
+                    className="search-input"
+                    type="text"
+                    placeholder="Filter tables and views..."
+                    value={objFilter}
+                    onChange={(e) => setObjFilter(e.target.value)}
+                  />
+                  {objFilter && (
+                    <button
+                      type="button"
+                      className="search-input-clear"
+                      onClick={() => setObjFilter("")}
+                      title="Clear filter"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
                 <span className="panel-count">
                   {filteredObjects.length} / {objects.length}
                 </span>
               </div>
-              <div className="db-list-scroll">
+              <div className="table-scroll">
                 <table>
                   <thead>
                     <tr>
@@ -214,7 +244,7 @@ export default function DatabaseExplorer() {
                         className={`clickable-row ${selectedObjectId === obj.id ? "selected" : ""}`}
                         onClick={() => setSelectedObjectId(obj.id)}
                       >
-                        <td>{obj.object_name}</td>
+                        <td title={obj.object_name}>{obj.object_name}</td>
                         <td>
                           <span
                             className={

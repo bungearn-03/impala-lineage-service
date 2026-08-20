@@ -340,11 +340,15 @@ label {
 }
 
 .db-card {
+  /* No `overflow: hidden` here on purpose -- combined with border-radius it's
+     a known Chromium bug that blurs anti-aliased text clipped by a rounded
+     overflow:hidden box (severity varies with zoom/display-scale, which is
+     why changing zoom % appears to "fix" it). The two children below get
+     matching corner radii of their own instead, so the card still reads as
+     one rounded shape without needing to clip anything. */
   border: 1.5px solid var(--color-border);
   border-radius: 8px;
-  overflow: hidden;
   background: var(--color-surface);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .db-card:hover {
@@ -363,15 +367,22 @@ label {
   gap: 0.5rem;
   width: 100%;
   border: none;
-  border-radius: 0;
+  border-radius: 6.5px 6.5px 0 0;
   background: transparent;
   box-shadow: none;
   padding: 0.55rem 0.7rem;
   font: inherit;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   cursor: pointer;
   text-align: left;
+}
+
+.db-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .db-card-main:hover {
@@ -386,7 +397,7 @@ label {
 
 .db-card-counts {
   font-weight: 500;
-  font-size: 0.74rem;
+  font-size: 0.82rem;
   color: var(--color-muted);
   white-space: nowrap;
 }
@@ -396,10 +407,11 @@ label {
   width: 100%;
   border: none;
   border-top: 1px solid var(--color-border);
-  border-radius: 0;
+  border-radius: 0 0 6.5px 6.5px;
   background: var(--color-bg);
   box-shadow: none;
-  font-size: 0.74rem;
+  font: inherit;
+  font-size: 0.82rem;
   font-weight: 600;
   padding: 0.4rem 0.7rem;
   text-align: center;
@@ -424,6 +436,45 @@ label {
   padding-right: 0.25rem;
 }
 
+.table-scroll {
+  max-height: calc(100vh - 320px);
+  min-height: 200px;
+  overflow-y: auto;
+}
+
+.table-scroll table {
+  /* thead needs to be sticky against this container's scroll, not the page's */
+  position: relative;
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface);
+  z-index: 1;
+}
+
+.table-scroll table {
+  table-layout: fixed;
+}
+
+.table-scroll td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-scroll th:nth-child(2),
+.table-scroll td:nth-child(2) {
+  width: 100px;
+}
+
+.table-scroll th:nth-child(3),
+.table-scroll td:nth-child(3) {
+  width: 130px;
+  overflow: visible;
+}
+
 .panel-toolbar {
   display: flex;
   align-items: center;
@@ -432,11 +483,38 @@ label {
   margin-bottom: 0.75rem;
 }
 
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
 .panel-toolbar .search-input {
   flex: 1;
   min-width: 0;
-  padding: 0.45rem 0.65rem;
+  padding: 0.45rem 1.9rem 0.45rem 0.65rem;
   font-size: 0.85rem;
+}
+
+.search-input-clear {
+  position: absolute;
+  right: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+  border-radius: 999px;
+}
+
+.search-input-clear:hover {
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
 .panel-count {

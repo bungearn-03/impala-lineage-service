@@ -83,17 +83,24 @@ function addTooltip(target: SVGElement, fullText: string): void {
 }
 // Pick a column count for a shortest-column grid. Simulates the same
 // shortest-column bin-packing the caller will actually use, for every
-// candidate column count, and keeps whichever produces an overall canvas
-// shape closest to `targetRatio` (width:height).
+// candidate column count, and keeps whichever scores best on a mix of two
+// things: how close the canvas shape lands to `targetRatio` (width:height),
+// and how much of that canvas is actually filled with content.
+//
+// The fill term matters because of one-outlier schemas: if a single table
+// is dramatically taller than everything else (e.g. one view with 100+
+// columns), that outlier sets a height floor no matter which column it
+// lands in, so adding more columns can keep "improving" the ratio (wider,
+// same height) long after every other column has run out of real content
+// to add -- chasing the ratio alone would keep picking more columns and
+// produce a canvas that's mostly dead space beside one tall outlier.
+// Penalizing low fill keeps that from winning purely on ratio closeness.
 //
 // Deliberately does NOT pre-filter to "whichever cols get closest to the
-// minimum possible height" first (an earlier version did this). With many
-// small, similar-height boxes, that minimum is only reached by spreading
-// across a huge number of columns, which always wins such a filter
-// regardless of the target ratio and produces one long, flat,
-// mostly-empty-looking strip. Searching the full range directly lets a
-// squarer, taller-but-narrower packing win when it actually looks more
-// balanced.
+// minimum possible height" first (an earlier version did this, and always
+// picked the max column count for many-similar-height boxes regardless of
+// target ratio). Searching the full range directly lets a squarer,
+// taller-but-narrower packing win when it actually looks more balanced.
 function pickLandscapeCols(
   heightsInPackOrder: number[],
   boxW: number,
@@ -105,9 +112,11 @@ function pickLandscapeCols(
   const n = heightsInPackOrder.length;
   if (n <= 1) return 1;
   const maxCols = Math.min(40, n);
+  const totalContentArea = heightsInPackOrder.reduce((sum, h) => sum + h, 0) * boxW;
+  const FILL_PENALTY_WEIGHT = 1.5;
 
   let best = 1;
-  let bestDiff = Infinity;
+  let bestScore = Infinity;
   for (let cols = 1; cols <= maxCols; cols++) {
     const colH = new Array(cols).fill(margin);
     for (const h of heightsInPackOrder) {
@@ -116,9 +125,11 @@ function pickLandscapeCols(
     }
     const w = cols * boxW + (cols - 1) * gapX + margin * 2;
     const hgt = Math.max(...colH) + margin;
-    const diff = Math.abs(w / hgt - targetRatio);
-    if (diff < bestDiff) {
-      bestDiff = diff;
+    const ratioDiff = Math.abs(w / hgt - targetRatio) / targetRatio;
+    const fillRatio = Math.min(1, totalContentArea / (w * hgt));
+    const score = ratioDiff + (1 - fillRatio) * FILL_PENALTY_WEIGHT;
+    if (score < bestScore) {
+      bestScore = score;
       best = cols;
     }
   }
@@ -426,7 +437,7 @@ function drawERLine(parent: SVGElement, fi: NodeInfo, ti2: NodeInfo, rel: DrRela
     el("path", {
       d,
       stroke: clr,
-      "stroke-width": "1.8",
+      "stroke-width": "2.2",
       fill: "none",
       opacity: ".88",
       ...(isViewSrc
@@ -499,7 +510,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
 
   if (rels.length > 0) {
     const G = new dagre.graphlib.Graph();
-    G.setGraph({ rankdir: opts.rankdir, nodesep: 65, ranksep: 110, marginx: 50, marginy: 50, acyclicer: "greedy", ranker: "network-simplex" });
+    G.setGraph({ rankdir: opts.rankdir, nodesep: 65, ranksep: 110, marginx: 90, marginy: 90, acyclicer: "greedy", ranker: "network-simplex" });
     G.setDefaultEdgeLabel(() => ({}));
     for (const [tn, meta] of Object.entries(nodeMeta)) {
       G.setNode(tn, { width: meta.w, height: meta.h });
@@ -527,7 +538,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
     // one another. Pack them into a simple shortest-column grid instead.
     const GAP_X = 40;
     const GAP_Y = 40;
-    const MARGIN = 30;
+    const MARGIN = 70;
     // Largest-first packing order gives a far more even column balance than
     // insertion order -- one huge outlier table packed early into whichever
     // column happens to be shortest at that moment can otherwise dominate
@@ -627,7 +638,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
       // Dimmed by default and wrapped per-relationship so hovering a table
       // can highlight just its own lines -- with 100+ tables, every line
       // drawn at full opacity all the time turns into unreadable spaghetti.
-      const wrap = el("g", { "data-from": r.from_table, "data-to": r.to_table, opacity: "0.45" });
+      const wrap = el("g", { "data-from": r.from_table, "data-to": r.to_table, opacity: "0.7" });
       drawERLine(wrap, fi, ti2, r, r.idx);
       relG.appendChild(wrap);
     });
@@ -639,7 +650,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
     Array.from(relG.children).forEach((g) => {
       const from = g.getAttribute("data-from");
       const to = g.getAttribute("data-to");
-      if (!activeTn) (g as SVGElement).setAttribute("opacity", "0.45");
+      if (!activeTn) (g as SVGElement).setAttribute("opacity", "0.7");
       else if (from === activeTn || to === activeTn) (g as SVGElement).setAttribute("opacity", "1");
       else (g as SVGElement).setAttribute("opacity", "0.06");
     });
@@ -748,7 +759,7 @@ interface OverviewOptions {
 
 function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElement {
   const { GW, GHDR, CROW, GPAD, GGAPH, GGAPV } = OV;
-  const MARGIN = 44;
+  const MARGIN = 90;
 
   const relatedSet = new Set<string>();
   const fkPerTable: Record<string, Set<string>> = {};
@@ -829,7 +840,27 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
   // sizing/packing by component would then dump that entire component into
   // a single column regardless of column count, towering over everything
   // else while the rest of the grid sits mostly empty.
-  const orderedTables = sortedComps.flat();
+  let orderedTables = sortedComps.flat();
+
+  // A table dramatically taller than the rest (e.g. one view with 100+
+  // columns) sets a height floor for whichever column it lands in no
+  // matter what -- but shortest-column packing has no say over WHICH
+  // column that ends up being, so it can land in the middle of the grid,
+  // sandwiched between shorter columns on both sides and reading as an
+  // arbitrary spike. Packing it first guarantees it seeds column 0 (ties in
+  // the shortest-column pick favor the lowest index), so it always ends up
+  // flush against the left edge instead of stranded in the middle.
+  {
+    const heights = Object.values(heightByPre);
+    const sortedHeights = [...heights].sort((a, b) => a - b);
+    const medianHeight = sortedHeights[Math.floor(sortedHeights.length / 2)] || 0;
+    const isOutlier = (tn: string) => medianHeight > 0 && heightByPre[tn] > medianHeight * 2.2;
+    const outliers = orderedTables.filter(isOutlier);
+    if (outliers.length > 0) {
+      orderedTables = [...outliers, ...orderedTables.filter((tn) => !isOutlier(tn))];
+    }
+  }
+
   const NCOLS =
     opts.ovCols === -1
       ? Math.max(1, pickLandscapeCols(orderedTables.map((tn) => heightByPre[tn]), GW, GGAPH, GGAPV, MARGIN, opts.aspectRatio ?? 1.5))
@@ -1138,12 +1169,12 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
       // Dimmed by default and wrapped per-relationship so hovering a table
       // can highlight just its own lines -- with 100+ tables, every line
       // drawn at full opacity all the time turns into unreadable spaghetti.
-      const wrap = el("g", { "data-from": r.from_table, "data-to": r.to_table, opacity: "0.45" });
+      const wrap = el("g", { "data-from": r.from_table, "data-to": r.to_table, opacity: "0.7" });
       wrap.appendChild(
         el("path", {
           d,
           stroke: clr,
-          "stroke-width": "1.8",
+          "stroke-width": "2.2",
           fill: "none",
           "marker-end": `url(#arr-${i})`,
           ...(isViewSrc ? { "stroke-dasharray": "6,4" } : {}),
@@ -1166,7 +1197,7 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
     Array.from(relG2.children).forEach((g) => {
       const from = g.getAttribute("data-from");
       const to = g.getAttribute("data-to");
-      if (!activeTn) (g as SVGElement).setAttribute("opacity", "0.45");
+      if (!activeTn) (g as SVGElement).setAttribute("opacity", "0.7");
       else if (from === activeTn || to === activeTn) (g as SVGElement).setAttribute("opacity", "1");
       else (g as SVGElement).setAttribute("opacity", "0.06");
     });
@@ -1180,6 +1211,14 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
 }
 
 // ─── Export helpers ────────────────────────────────────────────────────
+
+// Downloaded filenames use `data.database` verbatim, which for the custom
+// cross-database diagram is a free-text label like "3 databases (a, b, c)"
+// rather than a single identifier -- strip anything that isn't safe/plain
+// across OSes instead of passing it straight through.
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "diagram";
+}
 
 function serSVG(s: SVGElement): string {
   const c = s.cloneNode(true) as SVGElement;
@@ -1340,38 +1379,74 @@ export default function ERDiagram({ data }: ERDiagramProps) {
   function downloadSVG() {
     const s = svgRef.current;
     if (!s) return;
-    const blob = new Blob([serSVG(s)], { type: "image/svg+xml" });
-    const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(blob),
-      download: `drdiagram_${data.database}_${mode}.svg`,
-    });
-    a.click();
-    URL.revokeObjectURL(a.href);
+    try {
+      const blob = new Blob([serSVG(s)], { type: "image/svg+xml" });
+      const a = Object.assign(document.createElement("a"), {
+        href: URL.createObjectURL(blob),
+        download: `drdiagram_${sanitizeFilename(data.database)}_${mode}.svg`,
+      });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      console.error("Export SVG failed:", err);
+      window.alert("Export SVG failed. See the browser console for details.");
+    }
   }
   function downloadPNG() {
     const s = svgRef.current;
     if (!s) return;
+    const rawW = Number(s.getAttribute("width"));
+    const rawH = Number(s.getAttribute("height"));
+    if (!rawW || !rawH) return;
+
+    // A very large schema (many tables, "All columns" mode) can produce an
+    // SVG far too big to rasterize at a fixed 2.5x scale -- canvases have a
+    // hard per-dimension AND total-pixel-area limit (varies by browser, but
+    // commonly ~16384px/side or ~270 million total pixels), past which
+    // `getContext("2d")`/`toBlob` fail silently rather than throwing, which
+    // otherwise looks exactly like "the export button does nothing" with no
+    // error at all. Scale down first so it always stays within a safe
+    // budget -- generous enough that most diagrams still export at the full
+    // 2.5x (sharp when zoomed into afterwards), only kicking in for
+    // genuinely huge schemas.
+    const MAX_PIXELS = 180_000_000;
+    const MAX_DIM = 14_000;
+    const scale = Math.max(
+      0.1,
+      Math.min(2.5, Math.sqrt(MAX_PIXELS / (rawW * rawH)) || 2.5, MAX_DIM / rawW, MAX_DIM / rawH)
+    );
+
     const blob = new Blob([serSVG(s)], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const img = new Image();
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      window.alert("Export PNG failed while rendering the diagram. Try Export SVG instead.");
+    };
     img.onload = () => {
-      const scale = 2.5;
-      const cw = Number(s.getAttribute("width")) * scale;
-      const ch = Number(s.getAttribute("height")) * scale;
+      const cw = rawW * scale;
+      const ch = rawH * scale;
       const cv = document.createElement("canvas");
       cv.width = cw;
       cv.height = ch;
-      const ctx = cv.getContext("2d")!;
+      const ctx = cv.getContext("2d");
+      URL.revokeObjectURL(url);
+      if (!ctx) {
+        window.alert("Export PNG failed: this browser wouldn't allocate a canvas for the diagram.");
+        return;
+      }
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, cw, ch);
       ctx.scale(scale, scale);
       ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
       cv.toBlob((b2) => {
-        if (!b2) return;
+        if (!b2) {
+          window.alert("Export PNG failed: the diagram may be too large to export as an image. Try Export SVG instead.");
+          return;
+        }
         const a = Object.assign(document.createElement("a"), {
           href: URL.createObjectURL(b2),
-          download: `drdiagram_${data.database}_${mode}.png`,
+          download: `drdiagram_${sanitizeFilename(data.database)}_${mode}.png`,
         });
         a.click();
         URL.revokeObjectURL(a.href);
