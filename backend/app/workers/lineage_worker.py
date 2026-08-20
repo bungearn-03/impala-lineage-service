@@ -76,7 +76,16 @@ def run_lineage_scan(job_id: str) -> None:
             if target_database:
                 objects = [obj for obj in objects if obj.database_name == target_database]
 
-            by_full_name = {obj.full_name: obj for obj in objects}
+            # Maps to the plain id string, not the DataObject itself: this dict
+            # is read later (in `_compute_edges_for_view`) from a different,
+            # later-opened session, once this one has committed and closed.
+            # session_scope() commits with SQLAlchemy's default
+            # expire_on_commit=True, which expires every attribute on these
+            # instances -- holding onto the ORM objects themselves would make
+            # any later attribute access (e.g. `.id`) try to refresh from a
+            # session that's already closed and raise a detached-instance
+            # error. A plain str has no such lifecycle.
+            by_full_name = {obj.full_name: obj.id for obj in objects}
             schema = {obj.full_name: obj_repo.get_columns_schema(obj) for obj in objects}
             view_ids = [obj.id for obj in objects if obj.object_type == ObjectType.VIEW]
 
@@ -129,7 +138,7 @@ def run_lineage_scan(job_id: str) -> None:
 
 def _compute_edges_for_view(
     view: DataObject,
-    by_full_name: dict[str, DataObject],
+    by_full_name: dict[str, str],  # full_name -> DataObject.id
     schema: dict[str, dict],
     obj_repo: ObjectRepository,
     ai_client: AnthropicLineageClient | None,
@@ -143,10 +152,10 @@ def _compute_edges_for_view(
 
     resolved_source_names = [name for name in source_full_names if name in by_full_name]
     for source_name in resolved_source_names:
-        source_obj = by_full_name[source_name]
+        source_object_id = by_full_name[source_name]
         edges.append(
             {
-                "source_object_id": source_obj.id,
+                "source_object_id": source_object_id,
                 "target_object_id": view.id,
                 "source_column_id": None,
                 "target_column_id": None,
@@ -172,16 +181,16 @@ def _compute_edges_for_view(
     columns_with_attempts: set[str] = set()
     for col_edge in column_edges:
         columns_with_attempts.add(col_edge["target_column"])
-        source_obj = by_full_name.get(col_edge["source_table"])
-        if source_obj is None:
+        source_object_id = by_full_name.get(col_edge["source_table"])
+        if source_object_id is None:
             continue
-        source_col = obj_repo.get_column_by_name(source_obj.id, col_edge["source_column"])
+        source_col = obj_repo.get_column_by_name(source_object_id, col_edge["source_column"])
         target_col = obj_repo.get_column_by_name(view.id, col_edge["target_column"])
         if source_col is None or target_col is None:
             continue
         edges.append(
             {
-                "source_object_id": source_obj.id,
+                "source_object_id": source_object_id,
                 "target_object_id": view.id,
                 "source_column_id": source_col.id,
                 "target_column_id": target_col.id,
@@ -200,16 +209,16 @@ def _compute_edges_for_view(
             ai_response = ai_client.infer_column_lineage(sql, unresolved_targets, lineage_schema)
             validated = validate_ai_edges(ai_response, lineage_schema, unresolved_targets)
             for val_edge in validated:
-                source_obj = by_full_name.get(val_edge["source_table"])
-                if source_obj is None:
+                source_object_id = by_full_name.get(val_edge["source_table"])
+                if source_object_id is None:
                     continue
-                source_col = obj_repo.get_column_by_name(source_obj.id, val_edge["source_column"])
+                source_col = obj_repo.get_column_by_name(source_object_id, val_edge["source_column"])
                 target_col = obj_repo.get_column_by_name(view.id, val_edge["target_column"])
                 if source_col is None or target_col is None:
                     continue
                 edges.append(
                     {
-                        "source_object_id": source_obj.id,
+                        "source_object_id": source_object_id,
                         "target_object_id": view.id,
                         "source_column_id": source_col.id,
                         "target_column_id": target_col.id,
