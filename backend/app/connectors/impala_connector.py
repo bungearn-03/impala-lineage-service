@@ -29,6 +29,12 @@ logger = get_logger(__name__)
 # in `get_view_definition` for the accepted limitations.
 _VIEW_AS_RE = re.compile(r"\bAS\b", re.IGNORECASE | re.DOTALL)
 
+# Matches the start of a view's `SHOW CREATE TABLE` output (Impala returns
+# "CREATE VIEW ..." for views too, there's no separate "SHOW CREATE VIEW").
+# Used by the `SHOW VIEWS`-unsupported fallback in `list_objects` to tell
+# views apart from tables one DDL at a time.
+_CREATE_VIEW_RE = re.compile(r"^\s*CREATE\s+VIEW\b", re.IGNORECASE)
+
 
 class ImpalaConnector(BaseConnector):
     """Connector backed by a live Impala daemon (impalad) over `impyla`."""
@@ -146,19 +152,45 @@ class ImpalaConnector(BaseConnector):
             view_rows = self._execute(f"SHOW VIEWS IN {self._quote_ident(database)}")
             view_names = {row[0] for row in view_rows if row}
         except ConnectorError as exc:
-            # Older Impala versions don't support SHOW VIEWS. Fall back to
-            # treating every name from SHOW TABLES as a TABLE (unknown type).
+            # Older Impala versions don't support SHOW VIEWS at all (it's a
+            # relatively recent addition) -- fall back to asking each object
+            # individually via its DDL instead of defaulting everything to
+            # TABLE, since that would silently skip view-definition parsing
+            # (and therefore all lineage) for every real view in `database`.
             logger.warning(
-                "SHOW VIEWS IN %s not supported, falling back to TABLE for all objects: %s",
+                "SHOW VIEWS IN %s not supported, falling back to per-object "
+                "DDL inspection to detect views: %s",
                 database,
                 exc,
             )
+            view_names = self._detect_views_via_ddl(database, all_names)
 
         objects: list[tuple[str, str]] = []
         for name in sorted(all_names | view_names):
             object_type = "VIEW" if name in view_names else "TABLE"
             objects.append((name, object_type))
         return objects
+
+    def _detect_views_via_ddl(self, database: str, names: set[str]) -> set[str]:
+        """Classify objects as VIEW vs TABLE by inspecting each one's DDL.
+
+        Only used as a fallback when `SHOW VIEWS` isn't supported by the
+        Impala version in use -- there's no bulk way to ask "which of these
+        are views" on those versions, so this costs one `SHOW CREATE TABLE`
+        query per object. A single object whose DDL fails to fetch (e.g. a
+        transient error, or a kind concurrently dropped mid-scan) is treated
+        as a TABLE rather than aborting the whole database's scan over it.
+        """
+        view_names: set[str] = set()
+        for name in names:
+            try:
+                ddl = self.get_ddl(database, name)
+            except ConnectorError as exc:
+                logger.warning("Could not fetch DDL for %s.%s to detect its object type: %s", database, name, exc)
+                continue
+            if ddl and _CREATE_VIEW_RE.match(ddl):
+                view_names.add(name)
+        return view_names
 
     def get_columns(self, database: str, object_name: str) -> list[ColumnMetadata]:
         rows = self._execute(f"DESCRIBE {self._qualify(database, object_name)}")

@@ -578,14 +578,18 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
     diagH = Math.max(diagH, ni.y + ni.h + 60);
   }
 
-  // The exported/rendered canvas should read as a landscape image even when
-  // the tables themselves pack into a shape that's taller than it is wide
-  // (e.g. one very tall table next to a short one, with no room to balance
-  // that out across more columns) - pad extra background on the sides and
-  // center the content instead of shipping a portrait-cropped export.
+  // The exported/rendered canvas should read as a landscape image matching
+  // the chosen aspect ratio even when the tables themselves pack into a
+  // shape that's narrower than that ratio calls for -- not just the
+  // taller-than-wide case (e.g. one very tall table next to a short one,
+  // with no room to balance that out across more columns), but also a
+  // near-square or few-tables case where diagW is already >= diagH but
+  // still short of `diagH * ratio` (e.g. a single small table, which would
+  // otherwise export as a near-square image regardless of the ratio
+  // dropdown). Pad extra background on the sides and center the content
+  // instead of shipping a portrait- or square-cropped export.
   const LANDSCAPE_RATIO = opts.aspectRatio ?? 1.5;
-  let canvasW = diagW;
-  if (diagW < diagH) canvasW = Math.ceil(diagH * LANDSCAPE_RATIO);
+  let canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
   let xOffset = (canvasW - diagW) / 2;
 
   const svgW = canvasW;
@@ -605,7 +609,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
     if (neededW <= diagW && neededH <= diagH) return;
     diagW = Math.max(diagW, neededW);
     diagH = Math.max(diagH, neededH);
-    canvasW = diagW < diagH ? Math.ceil(diagH * LANDSCAPE_RATIO) : diagW;
+    canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
     xOffset = (canvasW - diagW) / 2;
     const newSvgH = TITLE_H + diagH + LEGEND_H;
     svg.setAttribute("width", String(canvasW));
@@ -902,13 +906,17 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
     diagW = Math.max(diagW, gb.gx + d.dx + GW + 60);
     diagH = Math.max(diagH, gb.gy + d.dy + gb.gh + 60);
   }
-  // The exported/rendered canvas should read as a landscape image even when
-  // the groups themselves pack into a shape that's taller than it is wide -
-  // pad extra background on the sides and center the content instead of
-  // shipping a portrait-cropped export.
+  // The exported/rendered canvas should read as a landscape image matching
+  // the chosen aspect ratio even when the groups themselves pack into a
+  // shape that's narrower than that ratio calls for -- not just the
+  // taller-than-wide case, but also a near-square or few-tables case where
+  // diagW is already >= diagH but still short of `diagH * ratio` (e.g. a
+  // single small table, which would otherwise export as a near-square image
+  // regardless of the ratio dropdown). Pad extra background on the sides
+  // and center the content instead of shipping a portrait- or
+  // square-cropped export.
   const LANDSCAPE_RATIO = opts.aspectRatio ?? 1.5;
-  let canvasW = diagW;
-  if (diagW < diagH) canvasW = Math.ceil(diagH * LANDSCAPE_RATIO);
+  let canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
   let xOffset = (canvasW - diagW) / 2;
 
   const svgW = canvasW;
@@ -930,7 +938,7 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
     if (neededW <= diagW && neededH <= diagH) return;
     diagW = Math.max(diagW, neededW);
     diagH = Math.max(diagH, neededH);
-    canvasW = diagW < diagH ? Math.ceil(diagH * LANDSCAPE_RATIO) : diagW;
+    canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
     xOffset = (canvasW - diagW) / 2;
     const newSvgH = TITLE_H + diagH + LEGEND_H;
     svg.setAttribute("width", String(canvasW));
