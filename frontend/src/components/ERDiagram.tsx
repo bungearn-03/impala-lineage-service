@@ -135,6 +135,25 @@ function pickLandscapeCols(
   }
   return best;
 }
+// How much of the final canvas width `landscapeCanvasWidth` is allowed to
+// be pure background padding (as opposed to actual table content), when
+// padding a too-tall pack out toward `targetRatio`. Capped rather than
+// uncapped because a single extreme outlier table (e.g. one 295-column
+// table towering over a schema where everything else tops out around 90
+// columns) can dominate diagH so completely that no column count will ever
+// shrink it -- padding all the way to the full target ratio in that case
+// mostly just adds dead background beside a narrow content stack instead of
+// producing a nicer-looking landscape image.
+const MAX_LANDSCAPE_PADDING_FRACTION = 0.3;
+// Picks the canvas width for a pack that's `diagW` x `diagH`, padding width
+// out toward `targetRatio` when the pack is too tall relative to its width,
+// but never padding purely for shape beyond `MAX_LANDSCAPE_PADDING_FRACTION`
+// of the resulting canvas -- see the constant's comment for why.
+function landscapeCanvasWidth(diagW: number, diagH: number, targetRatio: number): number {
+  const idealW = Math.ceil(diagH * targetRatio);
+  const capW = Math.ceil(diagW / (1 - MAX_LANDSCAPE_PADDING_FRACTION));
+  return Math.max(diagW, Math.min(idealW, capW));
+}
 function fontA(fam = "Segoe UI,Arial,sans-serif", sz = 11, wt = "400", fill = "#333"): Attrs {
   return { "font-family": fam, "font-size": sz, "font-weight": wt, fill, "dominant-baseline": "middle" };
 }
@@ -589,7 +608,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
   // dropdown). Pad extra background on the sides and center the content
   // instead of shipping a portrait- or square-cropped export.
   const LANDSCAPE_RATIO = opts.aspectRatio ?? 1.5;
-  let canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
+  let canvasW = landscapeCanvasWidth(diagW, diagH, LANDSCAPE_RATIO);
   let xOffset = (canvasW - diagW) / 2;
 
   const svgW = canvasW;
@@ -609,7 +628,7 @@ function renderER(data: DrDiagramResponse, opts: ERViewOptions): SVGElement {
     if (neededW <= diagW && neededH <= diagH) return;
     diagW = Math.max(diagW, neededW);
     diagH = Math.max(diagH, neededH);
-    canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
+    canvasW = landscapeCanvasWidth(diagW, diagH, LANDSCAPE_RATIO);
     xOffset = (canvasW - diagW) / 2;
     const newSvgH = TITLE_H + diagH + LEGEND_H;
     svg.setAttribute("width", String(canvasW));
@@ -916,7 +935,7 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
   // and center the content instead of shipping a portrait- or
   // square-cropped export.
   const LANDSCAPE_RATIO = opts.aspectRatio ?? 1.5;
-  let canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
+  let canvasW = landscapeCanvasWidth(diagW, diagH, LANDSCAPE_RATIO);
   let xOffset = (canvasW - diagW) / 2;
 
   const svgW = canvasW;
@@ -938,7 +957,7 @@ function renderOverview(data: DrDiagramResponse, opts: OverviewOptions): SVGElem
     if (neededW <= diagW && neededH <= diagH) return;
     diagW = Math.max(diagW, neededW);
     diagH = Math.max(diagH, neededH);
-    canvasW = Math.max(diagW, Math.ceil(diagH * LANDSCAPE_RATIO));
+    canvasW = landscapeCanvasWidth(diagW, diagH, LANDSCAPE_RATIO);
     xOffset = (canvasW - diagW) / 2;
     const newSvgH = TITLE_H + diagH + LEGEND_H;
     svg.setAttribute("width", String(canvasW));
